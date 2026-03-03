@@ -2,56 +2,52 @@ import os
 from github import Github, Auth
 from crewai import Agent, Task, Crew, Process, LLM
 
-# 1. THE BYPASS: Satisfy CrewAI's internal OpenAI check
-# This stops the "OPENAI_API_KEY is required" error immediately.
-os.environ["OPENAI_API_KEY"] = "sk-dummy-key-for-bypass"
+# 1. THE CRITICAL BYPASS: Satisfy CrewAI's internal check immediately
+# This stops the "OPENAI_API_KEY is required" error from crashing the script
+os.environ["OPENAI_API_KEY"] = "NA" 
 
-# 2. CONFIGURE GEMINI (The actual brain)
-# We use Gemini 1.5 Flash for its high speed and free tier limits.
+# 2. CONFIGURE GEMINI 3 FLASH
 gemini_llm = LLM(
     model="gemini/gemini-1.5-flash",
     api_key=os.getenv('GEMINI_API_KEY'),
     temperature=0.7
 )
 
-# 3. UPDATED GITHUB AUTHENTICATION
-# Fixing the 'login_or_token' deprecation warning.
+# 3. SECURE GITHUB AUTH
 auth = Auth.Token(os.getenv('GH_TOKEN'))
 g = Github(auth=auth)
-
 repo = g.get_repo(os.getenv('GITHUB_REPOSITORY'))
 pr_number = int(os.environ.get('PR_NUMBER', 1)) 
 pr = repo.get_pull(pr_number)
 
-# Fetch the code changes (the "diff")
+# Fetch the code diff
 diff_content = ""
 for file in pr.get_files():
     diff_content += f"\nFile: {file.filename}\n{file.patch}\n"
 
-# 4. DEFINE AGENTS (Crucial: set memory=False)
-# Memory in CrewAI uses OpenAI embeddings by default, so we disable it.
+# 4. DEFINE AGENTS (MUST set memory=False)
 critic = Agent(
     role='Security Critic',
-    goal='Identify vulnerabilities and hardcoded secrets in code changes.',
-    backstory='You are a Senior AppSec Engineer. You find leaked keys and risky logic.',
+    goal='Identify vulnerabilities and hardcoded secrets.',
+    backstory='Senior AppSec Engineer at SVCET. Expert at finding leaked keys.',
     llm=gemini_llm,
     verbose=True,
-    memory=False  
+    memory=False  # Required to bypass OpenAI embedding dependency
 )
 
 architect = Agent(
     role='System Architect',
-    goal='Ensure code follows clean architecture and naming conventions.',
-    backstory='You are a Lead Software Architect who loves SOLID principles.',
+    goal='Ensure clean code and SOLID principles.',
+    backstory='Lead Software Architect. Focuses on scalability and logic.',
     llm=gemini_llm,
     verbose=True,
-    memory=False
+    memory=False  # Required to bypass OpenAI embedding dependency
 )
 
-# 5. DEFINE THE TASK
+# 5. DEFINE TASK
 review_task = Task(
     description=f"Analyze these changes for security and logic errors:\n{diff_content}",
-    expected_output="A Markdown report with sections: Security Risks and Architecture Improvements.",
+    expected_output="A Markdown report with Security Risks and Architecture sections.",
     agent=critic
 )
 
@@ -60,10 +56,10 @@ crew = Crew(
     agents=[critic, architect],
     tasks=[review_task],
     process=Process.sequential,
-    memory=False # Ensuring global memory is also disabled
+    memory=False # Ensures global memory is disabled
 )
 
 result = crew.kickoff()
 
-# 7. POST FEEDBACK BACK TO GITHUB
+# 7. POST FEEDBACK
 pr.create_issue_comment(f"## 🤖 AI Aura: Git-CoArchitect Analysis\n\n{result}")
